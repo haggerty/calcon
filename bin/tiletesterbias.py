@@ -1,0 +1,37 @@
+#!/home/phnxrc/anaconda2/bin/python
+
+import sys
+import telnetlib
+import sqlite3
+import datetime
+
+HOST = "192.168.100.120"
+PORT = "9760"
+
+try:
+    tn = telnetlib.Telnet(HOST,PORT)
+except Exception as ex:
+    print ex
+    print "cannot connect to controller... give up"
+    sys.exit()
+
+tn.write( "\n\r")
+tn.write( "\n\r")
+
+prefix = "$GS2"
+# tile mapper #1
+vd = [267,282,229,-249,-272,-63,-61,-52, 0, 0, 0, 0, 0, 0, 0, 0]
+# tile mapper #2
+vd = [169, 169, 169, 169, 179, 179, 179, 179, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      
+i = 0
+for v in vd:
+    s = '%s%02d%d\n\r' % (prefix,i,v)
+    print s
+    tn.write(s)
+    print "reading..."
+    g = tn.read_until(">")
+    print g
+    i+=1 
+
+tn.write( "\n\r")

@@ -1,0 +1,85 @@
+#!/homesa/phnxsa/anaconda2/bin/python
+
+import sys
+import telnetlib
+import sqlite3
+import datetime
+import time
+
+# Turn on or off LED's in Inner and Outer HCAL, mask all on or off
+
+# John Haggerty, BNL, 2016.03.18
+
+HOST = "192.168.100.120"
+PORT = "9760"
+
+try:
+    tn = telnetlib.Telnet(HOST,PORT)
+except Exception as ex:
+    print ex
+    print "cannot connect to controller... give up"
+    sys.exit()
+
+tn.write( "\n\r")
+tn.write( "\n\r")
+
+print "Setting DAC"
+nleds = 5
+dac = 1800
+for i in range(nleds):
+    setdac = "$LS0"+str(i)+str(dac)+"\n\r"
+    print setdac
+#    tn.write("$LS002000\n\r")
+    tn.write(setdac)
+    z = tn.read_until(">").split()
+    print z
+tn.write( "\n\r")
+
+print "Tile #1"
+tn.write("$P00100")
+g = tn.read_until(">")
+print g
+tn.write( "\n\r")
+
+time.sleep(2.0)
+
+print "Tile #2"
+tn.write("$P00200")
+g = tn.read_until(">")
+print g
+tn.write( "\n\r")
+
+time.sleep(2.0)
+
+print "Tile #3"
+tn.write("$P00400")
+g = tn.read_until(">")
+print g
+tn.write( "\n\r")
+
+time.sleep(2.0)
+
+print "Tile #4"
+tn.write("$P00800")
+g = tn.read_until(">")
+print g
+tn.write( "\n\r")
+
+time.sleep(2.0)
+
+print "Tile #5"
+tn.write("$P01000")
+g = tn.read_until(">")
+print g
+tn.write( "\n\r")
+
+time.sleep(2.0)
+
+print "All tiles"
+tn.write("$P01F00")
+g = tn.read_until(">")
+print g
+tn.write( "\n\r")
+
+
+    

@@ -1,0 +1,231 @@
+import logging
+import sqlite3
+import datetime
+import telnetlib
+import time
+import sys
+import os
+import socket
+
+class SQLiteHandler():
+   init_sql_hcal = """CREATE TABLE IF NOT EXISTS HCAL(
+		 	   CREATED TEXT,
+			   UTIME REAL,
+			   RUNNUMBER INT,
+			   DETID INT,
+		  	   T0 REAL,
+	           	   T1 REAL,
+		 	   D0 INT,
+		  	   D1 INT,
+		  	   I0 REAL,
+		  	   I1 REAL
+			)"""
+
+   init_sql_emcal = """CREATE TABLE IF NOT EXISTS EMCAL(
+                           CREATED TEXT,
+                           UTIME REAL,
+			   RUNNUMBER INT,
+                           DETID INT,
+                           T0 REAL,
+                           D0 INT,
+                           I0 REAL
+                        )"""
+
+   init_sql_hcal_keithley = """CREATE TABLE IF NOT EXISTS HCAL_KEITHLEY(
+                           CREATED TEXT,
+                           UTIME REAL,
+			   RUNNUMBER INT,
+                           BIAS_VOLT REAL,
+                           BIAS_CUR REAL
+                        )"""
+
+   init_sql_emcal_keithley = """CREATE TABLE IF NOT EXISTS EMCAL_KEITHLEY(
+                           CREATED TEXT,
+                           UTIME REAL,
+			   RUNNUMBER INT,
+                           BIAS_VOLT REAL,
+                           BIAS_CUR REAL
+                        )"""
+
+   insert_hcal_sql = """INSERT INTO HCAL( CREATED, UTIME, RUNNUMBER, DETID, T0, T1, D0, D1, I0, I1) VALUES(  '%s', '%f', '%d', '%d', '%f', '%f', '%f', '%f', '%f', '%f'   );"""
+   insert_emcal_sql = """INSERT INTO EMCAL( CREATED, UTIME, RUNNUMBER, DETID, T0, D0, I0 ) VALUES(  '%s', '%f', '%d', '%d', '%f', '%f', '%f'  );"""
+   insert_hcal_keithley_sql = """INSERT INTO HCAL_KEITHLEY( CREATED, UTIME, RUNNUMBER, BIAS_VOLT, BIAS_CUR ) VALUES(  '%s', '%f', '%d', '%f', '%f' );"""
+   insert_emcal_keithley_sql = """INSERT INTO EMCAL_KEITHLEY( CREATED, UTIME, RUNNUMBER, BIAS_VOLT, BIAS_CUR ) VALUES(  '%s', '%f', '%d', '%f', '%f' );"""
+ 
+   #Initialization
+   def __init__(self, db):
+     self.db = db
+     conn = sqlite3.connect(self.db)
+     logging.info('Connected to database file %s',self.db)
+     conn.execute(self.init_sql_hcal)
+     conn.execute(self.init_sql_emcal)
+     conn.execute(self.init_sql_hcal_keithley)
+     conn.execute(self.init_sql_emcal_keithley)
+     conn.commit()
+
+   #Setting up a telnet connection
+   def setup_telnet(self,host,port):
+     self.host = host
+     self.port = port
+     try:
+      tn = telnetlib.Telnet( host, port, 1 )
+      logging.info('Telnet OK. host: %s port: %s', host, port)
+      return tn
+     except socket.timeout:
+      logging.info('Cant Telnet. host: %s port: %s', host, port) 
+      return 0
+    
+   #Check keithley is ON or OFF  
+   def check_if_keithley_on(self,keithley):
+    try:
+     keithley.write(':outp:stat?\r')
+     line = keithley.read_until('\r')
+     if int(line)==0:
+      logging.info('Keithley is OFF. Exiting..')
+    except Exception as ex:
+     print ex
+     logging.info('Cant read Keithley')
+     line = 0
+    if int(line)==1: keithley.write(':SYST:KEY 23\r') #Put back to local
+    return int(line)
+
+   #Read controller values
+   def read(self, instrument, cmd=''):
+     if instrument==0: sys.exit()
+     logging.info( 'Reading.. %s', cmd )
+     cmd = cmd + "\n\r"
+     instrument.write(cmd)
+     try:
+       r = instrument.read_until(">").split("\n\r")
+     except Exception as ex:
+       logging.info('Cant read cmd %s', cmd)   
+       r = 0
+     #print r
+     val = []
+     for value in r:
+      try:
+        val.append( float(value) )
+      except ValueError:
+        pass
+     return val
+
+   #Get Runnumber
+   def get_runnumber(self):
+    run = os.popen("rcdaq_client daq_status -s | awk \'{print $1}\'").read()
+    #logging.info('Runnumber %s', run)
+    try:
+       runnumber = int(run)
+    except ValueError:
+       runnumber = -1
+    return runnumber
+
+   #Get datetime as string
+   def get_datetime(self):
+    return str(datetime.datetime.now())
+
+   #Get unix time
+   def get_utime(self):
+    return time.time()
+
+   #Get keithley Volt, Cur
+   def read_keithley(self, keithley):
+     on = self.check_if_keithley_on(keithley)
+     self.kv = 0
+     self.ki = 0
+     if on==1:
+      keithley.write(':FORM:ELEM VOLT,CURR\r')
+      keithley.write(':READ?\r')
+      line = keithley.read_until('\r')
+      #print line
+      readback = str(line).split(',')
+      v = float( readback[0] )
+      i = float( readback[1] )
+      #print "voltage %2.2f, current %2.12f" % (v,i)
+      self.kv = v
+      self.ki = i
+      keithley.write(':SYST:KEY 23\r') #Put back to local
+     return on
+
+   #DB comit
+   def db_commit(self, t0, t1, t2, d0, d1, d2, i0, i1, i2):
+    created = self.get_datetime()
+    utime = self.get_utime()
+    run = self.get_runnumber()
+    conn = sqlite3.connect(self.db)
+    #logging.info( 't0 length %d', len(t0) )
+    #logging.info( 't2 length %d', len(t2) )
+    if len(t0)==24:
+     for detid in range(0,24):
+      sql = self.insert_hcal_sql % (created, utime, run, detid, t0[detid], t1[detid], d0[detid], d1[detid], i0[detid], i1[detid] )
+      #print sql 
+      conn.execute(sql)
+    if len(t2)==64:
+     for detid in range(0,64):
+      sql = self.insert_emcal_sql % (created, utime, run, detid, t2[detid], d2[detid], i2[detid] ) 
+      conn.execute(sql)
+    logging.info('Finally committed to database..')
+    conn.commit()
+
+   #DB for keithley
+   def db_keithley_commit(self, keithley, cmd):
+    created = self.get_datetime()
+    utime = self.get_utime()
+    run = self.get_runnumber()
+    conn = sqlite3.connect(self.db)
+    on = self.read_keithley( keithley )
+    if on==1:
+     #print self.kv, self.ki
+     sql = cmd % ( created, utime, run, self.kv, self.ki )
+     conn.execute(sql)
+     conn.commit()
+    
+
+if __name__ == '__main__':
+  logfile = "/data/data/phnxsa/testbeam.log"
+  dbfile = "/data/data/phnxsa/testbeam.db"
+  logging.basicConfig(filename=logfile,level=logging.DEBUG,format='%(asctime)s %(message)s',datefmt='%m/%d/%Y %I:%M:%S %p')
+  handler = SQLiteHandler(dbfile)
+
+  #HCAL keithley
+  host = "serial1"
+  port = "4001"
+  keithley = handler.setup_telnet(host, port)  
+  if keithley!=0: handler.db_keithley_commit( keithley, handler.insert_hcal_keithley_sql)
+
+  #EMCAL keithley
+  host = "serial1"
+  port = "4002"
+  keithley = handler.setup_telnet(host, port)
+  if keithley!=0: handler.db_keithley_commit( keithley, handler.insert_emcal_keithley_sql)
+ 
+  #check HCAL controller
+  host = "192.168.100.120"
+  port = "9760"
+  hcal = handler.setup_telnet(host, port)
+  t0 = t1 = d0 = d1 = i0 = i1 = []
+  if hcal!=0: 
+   t0 = handler.read( hcal, "$T0" )
+   t1 = handler.read( hcal, "$T1" )
+   d0 = handler.read( hcal, "$D0" )
+   d1 = handler.read( hcal, "$D1" )
+   i0 = handler.read( hcal, "$I0" )
+   i1 = handler.read( hcal, "$I1" )
+  else:
+  #sys.exit()
+   pass
+
+  #check EMCAL controller
+  host = "192.168.100.110"
+  port = "9760"
+  emcal = handler.setup_telnet(host, port)
+  t2 = d2 = i2 = []
+  if emcal!=0: 
+   t2 = handler.read( emcal, "$T0" )
+   d2 = handler.read( emcal, "$D0" )
+   i2 = handler.read( emcal, "$I0" )
+  else:
+   #sys.exit()
+   pass
+
+  #Now db entry
+  handler.db_commit(t0, t1, t2, d0, d1, d2, i0, i1, i2)

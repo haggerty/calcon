@@ -1,0 +1,62 @@
+#!/homesa/phnxsa/anaconda2/bin/python
+
+import sys
+import telnetlib
+import sqlite3
+import datetime
+import time
+
+# Turn on or off LED's in Inner and Outer HCAL, mask all on or off
+
+# John Haggerty, BNL, 2016.03.18
+
+HOST = "192.168.100.120"
+PORT = "9760"
+
+try:
+    tn = telnetlib.Telnet(HOST,PORT)
+except Exception as ex:
+    print ex
+    print "cannot connect to controller... give up"
+    sys.exit()
+
+tn.write( "\n\r")
+tn.write( "\n\r")
+
+#dacvalues = ["1900","0000","0000","0000","0000"]
+#dacvalues = ["0000","1900","0000","0000","0000"]
+#dacvalues = ["0000","0000","1900","0000","0000"]
+#dacvalues = ["0000","0000","0000","1900","0000"]
+dacvalues = ["0000","0000","0000","0000","1900"]
+
+i = 0
+for dac in dacvalues:
+    setdac = "$LS0"+str(i)+str(dac)
+    print setdac
+#    tn.write("$LS002000\n\r")
+    tn.write(setdac+"\n\r")
+    z = tn.read_until(">").split()
+    i+=1
+tn.write( "\n\r")
+
+#mask = "0100"
+#mask = "0200"
+#mask = "0400"
+#mask = "0800"
+mask = "1000"
+
+p = "$P0"+mask+"00"
+print "Mask: "+p
+tn.write(p+"\n\r")
+g = tn.read_until(">")
+#    print g
+tn.write( "\n\r")
+
+p = "$P1"+mask+"00"
+print "Mask: "+p
+tn.write(p+"\n\r")
+g = tn.read_until(">")
+#    print g
+tn.write( "\n\r")
+
+
